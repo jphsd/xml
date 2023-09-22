@@ -2,7 +2,7 @@ module github.com/jphsd/xml
 
 go 1.21
 
-require github.com/jphsd/graphics2d v0.0.0-20230914215729-12782f24903b
+require github.com/jphsd/graphics2d v0.0.0-20230920141058-dc1ca0cc05b2
 
 require (
 	github.com/jphsd/datastruct v0.0.0-20230317022422-9fcc25efdfd4 // indirect

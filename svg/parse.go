@@ -113,7 +113,7 @@ func PathsFromDescription(desc string) []*g2d.Path {
 		case 'T': // SmoothQuadTo
 			for i := 0; i < len(coords); i += 2 {
 				// Infer p1 from reflected penultimate value of previous C/S step, else use current
-				p1 := []float64{}
+				var p1 []float64
 				if qp == nil {
 					p1 = []float64{cx, cy}
 				} else {
@@ -129,7 +129,7 @@ func PathsFromDescription(desc string) []*g2d.Path {
 		case 't':
 			for i := 0; i < len(coords); i += 2 {
 				// Infer p1 from reflected penultimate value of previous C/S step, else use current
-				p1 := []float64{}
+				var p1 []float64
 				if qp == nil {
 					p1 = []float64{cx, cy}
 				} else {
@@ -167,7 +167,7 @@ func PathsFromDescription(desc string) []*g2d.Path {
 		case 'S': // SmoothCubicTo
 			for i := 0; i < len(coords); i += 4 {
 				// Infer p1 from reflected penultimate value of previous C/S step, else use current
-				p1 := []float64{}
+				var p1 []float64
 				if cp == nil {
 					p1 = []float64{cx, cy}
 				} else {
@@ -184,7 +184,7 @@ func PathsFromDescription(desc string) []*g2d.Path {
 		case 's':
 			for i := 0; i < len(coords); i += 4 {
 				// Infer p1 from reflected penultimate value of previous C/S step, else use current
-				p1 := []float64{}
+				var p1 []float64
 				if cp == nil {
 					p1 = []float64{cx, cy}
 				} else {
