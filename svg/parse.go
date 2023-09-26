@@ -402,7 +402,6 @@ func ParseViewBox(str string) [][]float64 {
 }
 
 func ParseTransform(str string) *g2d.Aff3 {
-fmt.Println(str)
 	cstrs := strings.Split(str, ")")
 	commands := []string{}
 	params := [][]float64{}
@@ -424,7 +423,6 @@ fmt.Println(str)
 	xfm := g2d.NewAff3()
 
 	for i, cmd := range commands {
-fmt.Println(cmd)
 		lp := params[i]
 		switch cmd {
 		case "matrix":
@@ -443,7 +441,6 @@ fmt.Println(cmd)
 			}
 		case "rotate":
 			r := lp[0] * math.Pi / 180
-fmt.Printf("r %.2f\n", r)
 			if len(lp) == 1 {
 				xfm.Concatenate(*g2d.Rotate(r))
 			} else {
