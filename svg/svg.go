@@ -129,6 +129,8 @@ func (svg *SVG) RectElt(elt *xml.Element) {
 	y := ParseValue(elt.Attributes["y"])
 	w := ParseValue(elt.Attributes["width"])
 	h := ParseValue(elt.Attributes["height"])
+	// rx, ry
+	// transform
 	path := g2d.Polygon([]float64{x, y}, []float64{x + w, y}, []float64{x + w, y + h}, []float64{x, y + h})
 	fill, stroke := svg.FillStroke(elt)
 	shape := g2d.NewShape(path)
@@ -140,6 +142,7 @@ func (svg *SVG) CircleElt(elt *xml.Element) {
 	cx := ParseValue(elt.Attributes["cx"])
 	cy := ParseValue(elt.Attributes["cy"])
 	r := ParseValue(elt.Attributes["r"])
+	// transform
 	path := g2d.Circle([]float64{cx, cy}, r)
 	fill, stroke := svg.FillStroke(elt)
 	shape := g2d.NewShape(path)
@@ -152,6 +155,7 @@ func (svg *SVG) EllipseElt(elt *xml.Element) {
 	cy := ParseValue(elt.Attributes["cy"])
 	rx := ParseValue(elt.Attributes["rx"])
 	ry := ParseValue(elt.Attributes["ry"])
+	// transform
 	path := g2d.Ellipse([]float64{cx, cy}, rx, ry, 0)
 	fill, stroke := svg.FillStroke(elt)
 	shape := g2d.NewShape(path)
@@ -164,6 +168,7 @@ func (svg *SVG) LineElt(elt *xml.Element) {
 	y1 := ParseValue(elt.Attributes["y1"])
 	x2 := ParseValue(elt.Attributes["x2"])
 	y2 := ParseValue(elt.Attributes["y2"])
+	// transform
 	path := g2d.Line([]float64{x1, y1}, []float64{x2, y2})
 	fill, stroke := svg.FillStroke(elt)
 	shape := g2d.NewShape(path)
@@ -176,6 +181,7 @@ func (svg *SVG) PolylineElt(elt *xml.Element) {
 	pstr = wscpat.ReplaceAllString(pstr, " ")
 	pstr = "X" + cpat.ReplaceAllString(pstr, "$1 -") // Add dummy command
 	_, coords := commandCoords(pstr)
+	// transform
 	path := g2d.NewPath([]float64{coords[0], coords[1]})
 	for i := 2; i < len(coords); i += 2 {
 		path.AddStep([]float64{coords[i], coords[i+1]})
@@ -191,6 +197,7 @@ func (svg *SVG) PolygonElt(elt *xml.Element) {
 	pstr = wscpat.ReplaceAllString(pstr, " ")
 	pstr = "X" + cpat.ReplaceAllString(pstr, "$1 -") // Add dummy command
 	_, coords := commandCoords(pstr)
+	// transform
 	path := g2d.NewPath([]float64{coords[0], coords[1]})
 	for i := 2; i < len(coords); i += 2 {
 		path.AddStep([]float64{coords[i], coords[i+1]})
@@ -228,13 +235,22 @@ func (svg *SVG) FillStroke(elt *xml.Element) (*g2d.Pen, *g2d.Pen) {
 		// Check for stroke-width
 		sw, _ := ParseValueUnit(elt.Attributes["stroke-width"])
 		if util.Equals(sw, 0) {
-			sw = 1 // SVG default stroke width (JH - add to SVG?)
+			sw = 1 // SVG default stroke width (JH - add to SVG struct?)
 		}
 		if scol != nil {
 			// Pen width is scaled by viewBox to image scale
 			pen = g2d.NewPen(scol, sw*svg.PenS)
 		} else {
 			pen = nil
+		}
+	} else {
+		attr = elt.Attributes["stroke-width"]
+		if attr != "" {
+			sw, _ := ParseValueUnit(attr)
+			if util.Equals(sw, 0) {
+				sw = 1 // SVG default stroke width (JH - add to SVG struct?)
+			}
+			pen.Stroke = g2d.NewStrokeProc(sw) // Rude
 		}
 	}
 

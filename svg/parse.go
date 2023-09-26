@@ -402,6 +402,7 @@ func ParseViewBox(str string) [][]float64 {
 }
 
 func ParseTransform(str string) *g2d.Aff3 {
+fmt.Println(str)
 	cstrs := strings.Split(str, ")")
 	commands := []string{}
 	params := [][]float64{}
@@ -413,7 +414,7 @@ func ParseTransform(str string) *g2d.Aff3 {
 		if len(parts) == 0 || len(parts[0]) == 0 {
 			continue
 		}
-		commands = append(commands, parts[0])
+		commands = append(commands, strings.TrimSpace(parts[0]))
 		parts[1] = wscpat.ReplaceAllString(parts[1], " ")
 		_, vals := commandCoords("X" + parts[1])
 		params = append(params, vals)
@@ -423,6 +424,7 @@ func ParseTransform(str string) *g2d.Aff3 {
 	xfm := g2d.NewAff3()
 
 	for i, cmd := range commands {
+fmt.Println(cmd)
 		lp := params[i]
 		switch cmd {
 		case "matrix":
@@ -441,6 +443,7 @@ func ParseTransform(str string) *g2d.Aff3 {
 			}
 		case "rotate":
 			r := lp[0] * math.Pi / 180
+fmt.Printf("r %.2f\n", r)
 			if len(lp) == 1 {
 				xfm.Concatenate(*g2d.Rotate(r))
 			} else {
