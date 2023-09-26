@@ -362,8 +362,15 @@ func ParseColor(str string) stdcol.Color {
 			return nil
 		}
 	}
+	// rgb(...)
+	strs := strings.Split(str, "(")
+	if len(strs) == 2 {
+		strs[1] = wscpat.ReplaceAllString(strs[1], " ")
+		_, vals := commandCoords("X" + strs[1])
+		return stdcol.RGBA{uint8(vals[0]), uint8(vals[1]), uint8(vals[2]), 0xff}
+	}
 	// Named color
-	col, err := color.ByName(str)
+	col, err := color.ByCSSName(str)
 	if err != nil {
 		return nil
 	}
@@ -380,4 +387,73 @@ func ParseStyle(str string, attrs map[string]string) {
 		// Assume 2 substrings
 		attrs[substrs[0]] = substrs[1]
 	}
+}
+
+func ParseViewBox(str string) [][]float64 {
+	strs := strings.Split(str, " ")
+	if len(strs) != 4 {
+		return nil
+	}
+	x := ParseValue(strs[0])
+	y := ParseValue(strs[1])
+	dx := ParseValue(strs[2])
+	dy := ParseValue(strs[3])
+	return [][]float64{{x, y}, {x + dx, y + dy}}
+}
+
+func ParseTransform(str string) *g2d.Aff3 {
+	cstrs := strings.Split(str, ")")
+	commands := []string{}
+	params := [][]float64{}
+	for _, cstr := range cstrs {
+		if cstr == "" {
+			continue
+		}
+		parts := strings.Split(cstr, "(")
+		if len(parts) == 0 || len(parts[0]) == 0 {
+			continue
+		}
+		commands = append(commands, parts[0])
+		parts[1] = wscpat.ReplaceAllString(parts[1], " ")
+		_, vals := commandCoords("X" + parts[1])
+		params = append(params, vals)
+	}
+
+	// Construct transform
+	xfm := g2d.NewAff3()
+
+	for i, cmd := range commands {
+		lp := params[i]
+		switch cmd {
+		case "matrix":
+			xfm.Concatenate(g2d.Aff3{lp[0], lp[2], lp[4], lp[1], lp[3], lp[5]})
+		case "translate":
+			if len(lp) == 1 {
+				xfm.Concatenate(*g2d.Translate(lp[0], 0))
+			} else {
+				xfm.Concatenate(*g2d.Translate(lp[0], lp[1]))
+			}
+		case "scale":
+			if len(lp) == 1 {
+				xfm.Concatenate(*g2d.Scale(lp[0], lp[0]))
+			} else {
+				xfm.Concatenate(*g2d.Scale(lp[0], lp[1]))
+			}
+		case "rotate":
+			r := lp[0] * math.Pi / 180
+			if len(lp) == 1 {
+				xfm.Concatenate(*g2d.Rotate(r))
+			} else {
+				xfm.Concatenate(*g2d.RotateAbout(r, lp[1], lp[2]))
+			}
+		case "skewX":
+			r := lp[0] * math.Pi / 180
+			xfm.Concatenate(*g2d.Shear(math.Tan(r), 0))
+		case "skewY":
+			r := lp[0] * math.Pi / 180
+			xfm.Concatenate(*g2d.Shear(0, math.Tan(r)))
+		}
+	}
+
+	return xfm
 }

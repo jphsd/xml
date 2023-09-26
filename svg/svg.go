@@ -12,7 +12,7 @@ import (
 
 // Draw renders the SVG data contained in dom into the destination image.
 func Draw(dst draw.Image, dom *xml.Element) {
-	// Process dom into dst
+	NewSVG(dst).Process(dom)
 }
 
 // TODO remove this once tested
@@ -23,16 +23,18 @@ type SVG struct {
 	Fill *g2d.Pen
 	Pen  *g2d.Pen
 	Xfm  *g2d.Aff3
+	Pxfm *g2d.Aff3
+	PenS float64
 }
 
 func NewSVG(dst draw.Image) *SVG {
 	// SVG default for fill is black, and for stroke is none
 	N = -1
-	return &SVG{dst, g2d.BlackPen, nil, g2d.NewAff3()}
+	return &SVG{dst, g2d.BlackPen, nil, g2d.NewAff3(), g2d.NewAff3(), 1}
 }
 
 func (svg *SVG) Copy() *SVG {
-	return &SVG{svg.Img, svg.Fill, svg.Pen, svg.Xfm.Copy()}
+	return &SVG{svg.Img, svg.Fill, svg.Pen, svg.Xfm.Copy(), svg.Pxfm.Copy(), svg.PenS}
 }
 
 func (svg *SVG) Process(elt *xml.Element) {
@@ -68,18 +70,46 @@ func (svg *SVG) Process(elt *xml.Element) {
 }
 
 func (svg *SVG) SVGElt(elt *xml.Element) {
+	orig := svg.Xfm
+
 	// Adjust xfm for viewBox (maintain aspect ratio)
-	// TODO - viewBox
+	attr := elt.Attributes["viewBox"]
+	if attr != "" {
+		// Fit the viewBox to the image maintaining the vb aspect ratio
+		bounds := ParseViewBox(attr)
+		vbdx, vbdy := bounds[1][0]-bounds[0][0], bounds[1][1]-bounds[0][1]
+		rect := svg.Img.Bounds()
+		dims := [][]float64{{float64(rect.Min.X), float64(rect.Min.Y)}, {float64(rect.Max.X), float64(rect.Max.Y)}}
+		imgdx, imgdy := dims[1][0]-dims[0][0], dims[1][1]-dims[0][1]
+		sx, sy := imgdx/vbdx, imgdy/vbdy
+		if sy < sx {
+			sx = sy
+		}
+		//xfm := g2d.Scale(sx, sx)
+		//xfm.Translate(bounds[0][0], bounds[0][1])
+		xfm := g2d.Translate(bounds[0][0], bounds[0][1])
+		xfm.Scale(sx, sx)
+		svg.Xfm = xfm
+		svg.PenS = sx
+	}
+
 	// Process all children
 	for _, elt := range elt.Children {
 		svg.Process(elt)
 	}
+
+	// Restore previous viewBox transform
+	svg.Xfm = orig
 }
 
 func (svg *SVG) GroupElt(elt *xml.Element) {
 	nsvg := svg.Copy()
 	// Pick up any transform, stroke or fill settings before walking children
-	// TODO - transform
+	attr := elt.Attributes["transform"]
+	if attr != "" {
+		xfm := ParseTransform(attr)
+		nsvg.Pxfm.Concatenate(*xfm)
+	}
 	nsvg.Fill, nsvg.Pen = svg.FillStroke(elt)
 	for _, elt := range elt.Children {
 		nsvg.Process(elt)
@@ -89,8 +119,9 @@ func (svg *SVG) GroupElt(elt *xml.Element) {
 func (svg *SVG) PathElt(elt *xml.Element) {
 	paths := PathsFromDescription(elt.Attributes["d"])
 	fill, stroke := svg.FillStroke(elt)
-	// TODO - pick up xfm
-	svg.renderShape(g2d.NewShape(paths...), fill, stroke)
+	shape := g2d.NewShape(paths...)
+	shape = shape.Transform(svg.Pxfm)
+	svg.renderShape(shape, fill, stroke)
 }
 
 func (svg *SVG) RectElt(elt *xml.Element) {
@@ -100,8 +131,9 @@ func (svg *SVG) RectElt(elt *xml.Element) {
 	h := ParseValue(elt.Attributes["height"])
 	path := g2d.Polygon([]float64{x, y}, []float64{x + w, y}, []float64{x + w, y + h}, []float64{x, y + h})
 	fill, stroke := svg.FillStroke(elt)
-	// TODO - pick up xfm
-	svg.renderShape(g2d.NewShape(path), fill, stroke)
+	shape := g2d.NewShape(path)
+	shape = shape.Transform(svg.Pxfm)
+	svg.renderShape(shape, fill, stroke)
 }
 
 func (svg *SVG) CircleElt(elt *xml.Element) {
@@ -110,8 +142,9 @@ func (svg *SVG) CircleElt(elt *xml.Element) {
 	r := ParseValue(elt.Attributes["r"])
 	path := g2d.Circle([]float64{cx, cy}, r)
 	fill, stroke := svg.FillStroke(elt)
-	// TODO - pick up xfm
-	svg.renderShape(g2d.NewShape(path), fill, stroke)
+	shape := g2d.NewShape(path)
+	shape = shape.Transform(svg.Pxfm)
+	svg.renderShape(shape, fill, stroke)
 }
 
 func (svg *SVG) EllipseElt(elt *xml.Element) {
@@ -121,8 +154,9 @@ func (svg *SVG) EllipseElt(elt *xml.Element) {
 	ry := ParseValue(elt.Attributes["ry"])
 	path := g2d.Ellipse([]float64{cx, cy}, rx, ry, 0)
 	fill, stroke := svg.FillStroke(elt)
-	// TODO - pick up xfm
-	svg.renderShape(g2d.NewShape(path), fill, stroke)
+	shape := g2d.NewShape(path)
+	shape = shape.Transform(svg.Pxfm)
+	svg.renderShape(shape, fill, stroke)
 }
 
 func (svg *SVG) LineElt(elt *xml.Element) {
@@ -132,8 +166,9 @@ func (svg *SVG) LineElt(elt *xml.Element) {
 	y2 := ParseValue(elt.Attributes["y2"])
 	path := g2d.Line([]float64{x1, y1}, []float64{x2, y2})
 	fill, stroke := svg.FillStroke(elt)
-	// TODO - pick up xfm
-	svg.renderShape(g2d.NewShape(path), fill, stroke)
+	shape := g2d.NewShape(path)
+	shape = shape.Transform(svg.Pxfm)
+	svg.renderShape(shape, fill, stroke)
 }
 
 func (svg *SVG) PolylineElt(elt *xml.Element) {
@@ -146,8 +181,9 @@ func (svg *SVG) PolylineElt(elt *xml.Element) {
 		path.AddStep([]float64{coords[i], coords[i+1]})
 	}
 	fill, stroke := svg.FillStroke(elt)
-	// TODO - pick up xfm
-	svg.renderShape(g2d.NewShape(path), fill, stroke)
+	shape := g2d.NewShape(path)
+	shape = shape.Transform(svg.Pxfm)
+	svg.renderShape(shape, fill, stroke)
 }
 
 func (svg *SVG) PolygonElt(elt *xml.Element) {
@@ -161,8 +197,9 @@ func (svg *SVG) PolygonElt(elt *xml.Element) {
 	}
 	path.Close()
 	fill, stroke := svg.FillStroke(elt)
-	// TODO - pick up xfm
-	svg.renderShape(g2d.NewShape(path), fill, stroke)
+	shape := g2d.NewShape(path)
+	shape = shape.Transform(svg.Pxfm)
+	svg.renderShape(shape, fill, stroke)
 }
 
 func (svg *SVG) FillStroke(elt *xml.Element) (*g2d.Pen, *g2d.Pen) {
@@ -194,7 +231,8 @@ func (svg *SVG) FillStroke(elt *xml.Element) (*g2d.Pen, *g2d.Pen) {
 			sw = 1 // SVG default stroke width (JH - add to SVG?)
 		}
 		if scol != nil {
-			pen = g2d.NewPen(scol, sw)
+			// Pen width is scaled by viewBox to image scale
+			pen = g2d.NewPen(scol, sw*svg.PenS)
 		} else {
 			pen = nil
 		}
@@ -204,7 +242,9 @@ func (svg *SVG) FillStroke(elt *xml.Element) (*g2d.Pen, *g2d.Pen) {
 }
 
 func (svg *SVG) renderShape(shape *g2d.Shape, fill, stroke *g2d.Pen) {
-	// TODO - apply xfm
+	// Apply viewBox xfm
+	shape = shape.Transform(svg.Xfm)
+
 	if N == -1 {
 		if fill != nil {
 			g2d.FillShape(svg.Img, shape, fill)
@@ -214,6 +254,8 @@ func (svg *SVG) renderShape(shape *g2d.Shape, fill, stroke *g2d.Pen) {
 		}
 		return
 	}
+
+	// TODO - remove once tested
 	img := image.NewRGBA(1000, 1000, color.White)
 	if fill != nil {
 		g2d.FillShape(img, shape, fill)
