@@ -250,7 +250,7 @@ func (svg *SVG) FillStroke(elt *xml.Element) (*g2d.Pen, *g2d.Pen) {
 			if util.Equals(sw, 0) {
 				sw = 1 // SVG default stroke width (JH - add to SVG struct?)
 			}
-			pen.Stroke = g2d.NewStrokeProc(sw) // Rude
+			pen.Stroke = g2d.NewStrokeProc(sw*svg.PenS) // Rude
 		}
 	}
 
