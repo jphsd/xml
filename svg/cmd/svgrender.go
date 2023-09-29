@@ -15,9 +15,7 @@ import (
 
 // Read in a SVG file and render it to an image
 func main() {
-	sf := flag.Bool("s", false, "split into path per image")
 	flag.Parse()
-	split := *sf
 	args := flag.Args()
 	fn := "/dev/stdin"
 	if len(args) > 0 {
@@ -41,10 +39,6 @@ func main() {
 	img := image.NewRGBA(width, height, color.White)
 
 	renderer := svg.NewSVG(img)
-	if split {
-		// Turn on image per path
-		svg.N = 0
-	}
 	renderer.Process(dom)
 
 	image.SaveImage(img, "svgrender")

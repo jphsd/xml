@@ -3,8 +3,6 @@ package svg
 import (
 	"fmt"
 	g2d "github.com/jphsd/graphics2d"
-	"github.com/jphsd/graphics2d/color"
-	"github.com/jphsd/graphics2d/image"
 	"github.com/jphsd/graphics2d/util"
 	"github.com/jphsd/xml"
 	"image/draw"
@@ -15,9 +13,7 @@ func Draw(dst draw.Image, dom *xml.Element) {
 	NewSVG(dst).Process(dom)
 }
 
-// TODO remove this once tested
-var N int
-
+// SVG contains the current context - the imgae being drawn into, the style and veiw transforms.
 type SVG struct {
 	Img  draw.Image
 	Fill *g2d.Pen
@@ -29,7 +25,6 @@ type SVG struct {
 
 func NewSVG(dst draw.Image) *SVG {
 	// SVG default for fill is black, and for stroke is none
-	N = -1
 	return &SVG{dst, g2d.BlackPen, nil, g2d.NewAff3(), g2d.NewAff3(), 1}
 }
 
@@ -104,10 +99,8 @@ func (svg *SVG) SVGElt(elt *xml.Element) {
 
 func (svg *SVG) GroupElt(elt *xml.Element) {
 	nsvg := svg.Copy()
-	// Pick up any transform, stroke or fill settings before walking children
-	attr := elt.Attributes["transform"]
-	if attr != "" {
-		xfm := ParseTransform(attr)
+	xfm := svg.Transform(elt)
+	if xfm != nil {
 		nsvg.Pxfm.Concatenate(*xfm)
 	}
 	nsvg.Fill, nsvg.Pen = svg.FillStroke(elt)
@@ -118,10 +111,17 @@ func (svg *SVG) GroupElt(elt *xml.Element) {
 
 func (svg *SVG) PathElt(elt *xml.Element) {
 	paths := PathsFromDescription(elt.Attributes["d"])
+
+	nsvg := svg.Copy()
+	xfm := svg.Transform(elt)
+	if xfm != nil {
+		nsvg.Pxfm.Concatenate(*xfm)
+	}
 	fill, stroke := svg.FillStroke(elt)
+	nsvg.Fill, nsvg.Pen = fill, stroke
 	shape := g2d.NewShape(paths...)
-	shape = shape.Transform(svg.Pxfm)
-	svg.renderShape(shape, fill, stroke)
+	shape = shape.Transform(nsvg.Pxfm)
+	nsvg.renderShape(shape)
 }
 
 func (svg *SVG) RectElt(elt *xml.Element) {
@@ -130,24 +130,18 @@ func (svg *SVG) RectElt(elt *xml.Element) {
 	w := ParseValue(elt.Attributes["width"])
 	h := ParseValue(elt.Attributes["height"])
 	// rx, ry
-	// transform
 	path := g2d.Polygon([]float64{x, y}, []float64{x + w, y}, []float64{x + w, y + h}, []float64{x, y + h})
-	fill, stroke := svg.FillStroke(elt)
-	shape := g2d.NewShape(path)
-	shape = shape.Transform(svg.Pxfm)
-	svg.renderShape(shape, fill, stroke)
+
+	svg.renderPath(path, elt)
 }
 
 func (svg *SVG) CircleElt(elt *xml.Element) {
 	cx := ParseValue(elt.Attributes["cx"])
 	cy := ParseValue(elt.Attributes["cy"])
 	r := ParseValue(elt.Attributes["r"])
-	// transform
 	path := g2d.Circle([]float64{cx, cy}, r)
-	fill, stroke := svg.FillStroke(elt)
-	shape := g2d.NewShape(path)
-	shape = shape.Transform(svg.Pxfm)
-	svg.renderShape(shape, fill, stroke)
+
+	svg.renderPath(path, elt)
 }
 
 func (svg *SVG) EllipseElt(elt *xml.Element) {
@@ -155,12 +149,9 @@ func (svg *SVG) EllipseElt(elt *xml.Element) {
 	cy := ParseValue(elt.Attributes["cy"])
 	rx := ParseValue(elt.Attributes["rx"])
 	ry := ParseValue(elt.Attributes["ry"])
-	// transform
 	path := g2d.Ellipse([]float64{cx, cy}, rx, ry, 0)
-	fill, stroke := svg.FillStroke(elt)
-	shape := g2d.NewShape(path)
-	shape = shape.Transform(svg.Pxfm)
-	svg.renderShape(shape, fill, stroke)
+
+	svg.renderPath(path, elt)
 }
 
 func (svg *SVG) LineElt(elt *xml.Element) {
@@ -168,12 +159,9 @@ func (svg *SVG) LineElt(elt *xml.Element) {
 	y1 := ParseValue(elt.Attributes["y1"])
 	x2 := ParseValue(elt.Attributes["x2"])
 	y2 := ParseValue(elt.Attributes["y2"])
-	// transform
 	path := g2d.Line([]float64{x1, y1}, []float64{x2, y2})
-	fill, stroke := svg.FillStroke(elt)
-	shape := g2d.NewShape(path)
-	shape = shape.Transform(svg.Pxfm)
-	svg.renderShape(shape, fill, stroke)
+
+	svg.renderPath(path, elt)
 }
 
 func (svg *SVG) PolylineElt(elt *xml.Element) {
@@ -181,15 +169,12 @@ func (svg *SVG) PolylineElt(elt *xml.Element) {
 	pstr = wscpat.ReplaceAllString(pstr, " ")
 	pstr = "X" + cpat.ReplaceAllString(pstr, "$1 -") // Add dummy command
 	_, coords := commandCoords(pstr)
-	// transform
 	path := g2d.NewPath([]float64{coords[0], coords[1]})
 	for i := 2; i < len(coords); i += 2 {
 		path.AddStep([]float64{coords[i], coords[i+1]})
 	}
-	fill, stroke := svg.FillStroke(elt)
-	shape := g2d.NewShape(path)
-	shape = shape.Transform(svg.Pxfm)
-	svg.renderShape(shape, fill, stroke)
+
+	svg.renderPath(path, elt)
 }
 
 func (svg *SVG) PolygonElt(elt *xml.Element) {
@@ -197,16 +182,21 @@ func (svg *SVG) PolygonElt(elt *xml.Element) {
 	pstr = wscpat.ReplaceAllString(pstr, " ")
 	pstr = "X" + cpat.ReplaceAllString(pstr, "$1 -") // Add dummy command
 	_, coords := commandCoords(pstr)
-	// transform
 	path := g2d.NewPath([]float64{coords[0], coords[1]})
 	for i := 2; i < len(coords); i += 2 {
 		path.AddStep([]float64{coords[i], coords[i+1]})
 	}
 	path.Close()
-	fill, stroke := svg.FillStroke(elt)
-	shape := g2d.NewShape(path)
-	shape = shape.Transform(svg.Pxfm)
-	svg.renderShape(shape, fill, stroke)
+
+	svg.renderPath(path, elt)
+}
+
+func (svg *SVG) Transform(elt *xml.Element) *g2d.Aff3 {
+	attr := elt.Attributes["transform"]
+	if attr != "" {
+		return ParseTransform(attr)
+	}
+	return nil
 }
 
 func (svg *SVG) FillStroke(elt *xml.Element) (*g2d.Pen, *g2d.Pen) {
@@ -250,35 +240,35 @@ func (svg *SVG) FillStroke(elt *xml.Element) (*g2d.Pen, *g2d.Pen) {
 			if util.Equals(sw, 0) {
 				sw = 1 // SVG default stroke width (JH - add to SVG struct?)
 			}
-			pen.Stroke = g2d.NewStrokeProc(sw*svg.PenS) // Rude
+			pen.Stroke = g2d.NewStrokeProc(sw * svg.PenS) // Rude
 		}
 	}
 
 	return fill, pen
 }
 
-func (svg *SVG) renderShape(shape *g2d.Shape, fill, stroke *g2d.Pen) {
+func (svg *SVG) renderPath(path *g2d.Path, elt *xml.Element) {
+	nsvg := svg.Copy()
+	xfm := svg.Transform(elt)
+	if xfm != nil {
+		nsvg.Pxfm.Concatenate(*xfm)
+	}
+	fill, stroke := svg.FillStroke(elt)
+	nsvg.Fill, nsvg.Pen = fill, stroke
+	shape := g2d.NewShape(path)
+	shape = shape.Transform(nsvg.Pxfm)
+	nsvg.renderShape(shape)
+}
+
+func (svg *SVG) renderShape(shape *g2d.Shape) {
 	// Apply viewBox xfm
 	shape = shape.Transform(svg.Xfm)
 
-	if N == -1 {
-		if fill != nil {
-			g2d.FillShape(svg.Img, shape, fill)
-		}
-		if stroke != nil {
-			g2d.DrawShape(svg.Img, shape, stroke)
-		}
-		return
+	if svg.Fill != nil {
+		g2d.FillShape(svg.Img, shape, svg.Fill)
 	}
-
-	// TODO - remove once tested
-	img := image.NewRGBA(1000, 1000, color.White)
-	if fill != nil {
-		g2d.FillShape(img, shape, fill)
+	if svg.Pen != nil {
+		g2d.DrawShape(svg.Img, shape, svg.Pen)
 	}
-	if stroke != nil {
-		g2d.DrawShape(img, shape, stroke)
-	}
-	image.SaveImage(img, fmt.Sprintf("path-%d", N))
-	N++
+	return
 }
