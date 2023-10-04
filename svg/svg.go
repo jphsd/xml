@@ -5,7 +5,9 @@ import (
 	g2d "github.com/jphsd/graphics2d"
 	"github.com/jphsd/graphics2d/util"
 	"github.com/jphsd/xml"
+	"image"
 	"image/draw"
+	"math"
 )
 
 // Draw renders the SVG data contained in dom into the destination image.
@@ -36,6 +38,8 @@ func (svg *SVG) Process(elt *xml.Element) {
 	if elt.Type != xml.Node {
 		return
 	}
+
+	inheritAttributes(elt)
 
 	// Process is not SVG DOM aware - ie no checking on element validity
 	// Look at element and call appropriate function
@@ -88,6 +92,9 @@ func (svg *SVG) SVGElt(elt *xml.Element) {
 		svg.PenS = sx
 	}
 
+	// Capture initial fill and style
+	svg.Fill, svg.Pen = svg.FillStroke(elt)
+
 	// Process all children
 	for _, elt := range elt.Children {
 		svg.Process(elt)
@@ -117,8 +124,7 @@ func (svg *SVG) PathElt(elt *xml.Element) {
 	if xfm != nil {
 		nsvg.Pxfm.Concatenate(*xfm)
 	}
-	fill, stroke := svg.FillStroke(elt)
-	nsvg.Fill, nsvg.Pen = fill, stroke
+	nsvg.Fill, nsvg.Pen = svg.FillStroke(elt)
 	shape := g2d.NewShape(paths...)
 	shape = shape.Transform(nsvg.Pxfm)
 	nsvg.renderShape(shape)
@@ -204,12 +210,10 @@ func (svg *SVG) FillStroke(elt *xml.Element) (*g2d.Pen, *g2d.Pen) {
 	pen := svg.Pen
 
 	// style stomps on presentation attributes
-	attr := elt.Attributes["style"]
-	if attr != "" {
-		ParseStyle(attr, elt.Attributes)
-	}
+	ParseStyle(elt.Attributes["style"], elt.Attributes)
 
-	attr = elt.Attributes["fill"]
+	// fill: black
+	attr := elt.Attributes["fill"]
 	if attr != "" {
 		fcol := ParseColor(attr)
 		if fcol != nil {
@@ -219,32 +223,96 @@ func (svg *SVG) FillStroke(elt *xml.Element) (*g2d.Pen, *g2d.Pen) {
 		}
 	}
 
-	attr = elt.Attributes["stroke"]
-	if attr != "" {
-		scol := ParseColor(attr)
-		// Check for stroke-width
-		sw, _ := ParseValueUnit(elt.Attributes["stroke-width"])
-		if util.Equals(sw, 0) {
-			sw = 1 // SVG default stroke width (JH - add to SVG struct?)
-		}
-		if scol != nil {
-			// Pen width is scaled by viewBox to image scale
-			pen = g2d.NewPen(scol, sw*svg.PenS)
-		} else {
-			pen = nil
-		}
+	// stroke: none
+	scol := ParseColor(elt.Attributes["stroke"])
+	if scol == nil && pen == nil {
+		return fill, pen
+	}
+
+	// stroke-width: 1
+	sw, _ := ParseValueUnit(elt.Attributes["stroke-width"])
+	if util.Equals(sw, 0) {
+		sw = 1
+	}
+
+	var npen *g2d.Pen
+	if pen == nil {
+		// Create new pen with miter line join and butt caps
+		pw := sw * svg.PenS / 2
+		ang := 2 * math.Asin(0.25) // miter limit = 4
+		mj := &g2d.MiterJoin{ang, g2d.JoinBevel}
+		sp := &g2d.StrokeProc{
+			&g2d.TraceProc{pw, 0.5, mj.JoinMiter},
+			&g2d.TraceProc{-pw, 0.5, mj.JoinMiter},
+			nil,
+			g2d.PointCircle,
+			g2d.CapButt,
+			nil,
+			nil}
+		npen = &g2d.Pen{image.NewUniform(scol), sp, nil}
 	} else {
-		attr = elt.Attributes["stroke-width"]
-		if attr != "" {
-			sw, _ := ParseValueUnit(attr)
-			if util.Equals(sw, 0) {
-				sw = 1 // SVG default stroke width (JH - add to SVG struct?)
-			}
-			pen.Stroke = g2d.NewStrokeProc(sw * svg.PenS) // Rude
+		// Clone curent pen
+		tsp, _ := pen.Stroke.(*g2d.StrokeProc)
+		sp := &g2d.StrokeProc{
+			tsp.RTraceProc,
+			tsp.LTraceProc,
+			nil,
+			tsp.PointFunc,
+			tsp.CapFunc,
+			nil,
+			nil}
+		npen = &g2d.Pen{pen.Filler, sp, nil}
+	}
+
+	// stroke-linecap: butt, [round, square]
+	attr = elt.Attributes["stroke-linecap"]
+	if attr != "" {
+		tsp, _ := npen.Stroke.(*g2d.StrokeProc)
+		switch attr {
+		case "round":
+			tsp.CapFunc = g2d.CapRound
+			tsp.PointFunc = g2d.PointCircle
+		case "square":
+			tsp.CapFunc = g2d.CapSquare
+			tsp.PointFunc = g2d.PointSquare
+		default:
+			fallthrough
+		case "butt":
+			tsp.CapFunc = g2d.CapButt
+			tsp.PointFunc = g2d.PointCircle
 		}
 	}
 
-	return fill, pen
+	// stroke-linejoin: miter, [round, bevel]
+	// stroke-miterlimit: 4 [1,) ratio of miter length to stroke width
+	attr = elt.Attributes["stroke-linejoin"]
+	if attr != "" {
+		tsp, _ := npen.Stroke.(*g2d.StrokeProc)
+		switch attr {
+		default:
+			fallthrough
+		case "miter":
+			ml := 4.0
+			attr = elt.Attributes["stroke-miterlimit"]
+			if attr != "" {
+				ml = ParseValue(attr)
+				if ml < 1 {
+					ml = 1
+				}
+			}
+			mj := &g2d.MiterJoin{2 * math.Asin(1/ml), g2d.JoinBevel}
+			tsp.RTraceProc.JoinFunc = mj.JoinMiter
+			tsp.LTraceProc.JoinFunc = mj.JoinMiter
+		case "round":
+			tsp.RTraceProc.JoinFunc = g2d.JoinRound
+			tsp.LTraceProc.JoinFunc = g2d.JoinRound
+		case "bevel":
+			tsp.RTraceProc.JoinFunc = g2d.JoinBevel
+			tsp.LTraceProc.JoinFunc = g2d.JoinBevel
+		}
+	}
+
+	return fill, npen
 }
 
 func (svg *SVG) renderPath(path *g2d.Path, elt *xml.Element) {
@@ -253,8 +321,7 @@ func (svg *SVG) renderPath(path *g2d.Path, elt *xml.Element) {
 	if xfm != nil {
 		nsvg.Pxfm.Concatenate(*xfm)
 	}
-	fill, stroke := svg.FillStroke(elt)
-	nsvg.Fill, nsvg.Pen = fill, stroke
+	nsvg.Fill, nsvg.Pen = svg.FillStroke(elt)
 	shape := g2d.NewShape(path)
 	shape = shape.Transform(nsvg.Pxfm)
 	nsvg.renderShape(shape)
@@ -271,4 +338,32 @@ func (svg *SVG) renderShape(shape *g2d.Shape) {
 		g2d.DrawShape(svg.Img, shape, svg.Pen)
 	}
 	return
+}
+
+func inheritAttributes(elt *xml.Element) {
+	if elt.Parent == nil {
+		return
+	}
+
+	// Assumes ParseStyle has already been called on parent
+	preserve := []string{
+		"fill",
+		"stroke",
+		"stroke-linewidth",
+		"stroke-linecap",
+		"stroke-linejoin",
+		"stroke-miterlimit",
+	}
+
+	// Make a new map with the preserved elements from the parent and then update with the child
+	cattrs := elt.Attributes
+	pattrs := elt.Parent.Attributes
+	attrs := make(map[string]string)
+	for _, attr := range preserve {
+		attrs[attr] = pattrs[attr]
+	}
+	for k, v := range cattrs {
+		attrs[k] = v
+	}
+	elt.Attributes = attrs
 }

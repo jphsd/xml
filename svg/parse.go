@@ -337,8 +337,8 @@ func ParseValueUnit(str string) (float64, string) {
 }
 
 func ParseColor(str string) stdcol.Color {
-	// none
-	if str == "none" {
+	// empty or none
+	if str == "" || str == "none" {
 		return nil
 	}
 	// #XXX or #XXXXXX
@@ -378,6 +378,9 @@ func ParseColor(str string) stdcol.Color {
 }
 
 func ParseStyle(str string, attrs map[string]string) {
+	if str == "" {
+		return
+	}
 	strs := strings.Split(str, ";")
 	for _, str = range strs {
 		if str == "" {
