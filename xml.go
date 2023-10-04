@@ -71,24 +71,6 @@ func (d *XMLDecoder) Process() error {
 	return nil
 }
 
-// TT represents the element type.
-type TT int
-
-const (
-	Node TT = iota
-	Content
-)
-
-// Element is used to form the tree structure of the Document Object Model.
-type Element struct {
-	Type       TT                // Node or Content
-	Name       xml.Name          // Node name
-	Attributes map[string]string // Node attributes
-	Content    xml.CharData      // CDATA content
-	Parent     *Element          // Parent node
-	Children   []*Element        // List of child nodes and contents for this node
-}
-
 // BuildDOM inserts its own functions into the decoder in order to build the Domain Object Model.
 func (d *XMLDecoder) BuildDOM() (*Element, error) {
 	var root, cur *Element
