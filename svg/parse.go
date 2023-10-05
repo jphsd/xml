@@ -405,6 +405,10 @@ func ParseViewBox(str string) [][]float64 {
 }
 
 func ParseTransform(str string) *g2d.Aff3 {
+	if str == "" {
+		return nil
+	}
+
 	cstrs := strings.Split(str, ")")
 	commands := []string{}
 	params := [][]float64{}
