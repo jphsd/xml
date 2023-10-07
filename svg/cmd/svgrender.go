@@ -15,6 +15,7 @@ import (
 
 // Read in a SVG file and render it to an image
 func main() {
+	// Get the file name from the command line or read stdin
 	flag.Parse()
 	args := flag.Args()
 	fn := "/dev/stdin"
@@ -22,24 +23,28 @@ func main() {
 		fn = args[0]
 	}
 
+	// Open file
 	f, err := os.Open(fn)
 	if err != nil {
 		panic(err)
 	}
 	defer f.Close()
 
+	// Convert it to a domain object model
 	decoder := xml.NewXMLDecoder(bufio.NewReader(f))
-
 	dom, err := decoder.BuildDOM()
 	if err != nil {
 		panic(err)
 	}
 
+	// Create an image to render into
 	width, height := 1000, 1000
 	img := image.NewRGBA(width, height, color.White)
 
+	// Render it using the DOM
 	renderer := svg.NewSVG(img)
 	renderer.Process(dom)
 
+	// Save the result
 	image.SaveImage(img, "svgrender")
 }
