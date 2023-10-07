@@ -464,3 +464,13 @@ func ParseTransform(str string) *g2d.Aff3 {
 
 	return xfm
 }
+
+func ParseUrlId(str string) string {
+	// "url(#<...>)
+	parts := strings.Split(str, "#")
+	if len(parts) != 2 {
+		return ""
+	}
+	lp2 := len(parts[1])
+	return parts[1][0 : lp2-1]
+}
