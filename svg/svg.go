@@ -100,35 +100,35 @@ func (svg *SVG) SVGElt(elt *xml.Element) {
 	}
 
 	// Set/Capture initial fill and style
-	attr, ok = elt.Attributes["fill"]
+	_, ok = elt.Attributes["fill"]
 	if !ok {
 		elt.Attributes["fill"] = "#000"
 	}
-	attr, ok = elt.Attributes["fill-opacity"]
+	_, ok = elt.Attributes["fill-opacity"]
 	if !ok {
 		elt.Attributes["fill-opacity"] = "1"
 	}
-	attr, ok = elt.Attributes["stroke"]
+	_, ok = elt.Attributes["stroke"]
 	if !ok {
 		elt.Attributes["stroke"] = "none"
 	}
-	attr, ok = elt.Attributes["stroke-opacity"]
+	_, ok = elt.Attributes["stroke-opacity"]
 	if !ok {
 		elt.Attributes["stroke-opacity"] = "1"
 	}
-	attr, ok = elt.Attributes["stroke-linecap"]
+	_, ok = elt.Attributes["stroke-linecap"]
 	if !ok {
 		elt.Attributes["stroke-linecap"] = "butt"
 	}
-	attr, ok = elt.Attributes["stroke-linejoin"]
+	_, ok = elt.Attributes["stroke-linejoin"]
 	if !ok {
 		elt.Attributes["stroke-linejoin"] = "miter"
 	}
-	attr, ok = elt.Attributes["stroke-miterlimit"]
+	_, ok = elt.Attributes["stroke-miterlimit"]
 	if !ok {
 		elt.Attributes["stroke-miterlimit"] = "4"
 	}
-	attr, ok = elt.Attributes["clip-path"]
+	_, ok = elt.Attributes["clip-path"]
 	if !ok {
 		elt.Attributes["clip-path"] = ""
 	}
