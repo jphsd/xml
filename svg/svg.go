@@ -284,7 +284,6 @@ func (svg *SVG) UseElt(elt *xml.Element) {
 	// Clone and attach current as parent
 	clone := delt.Copy()
 	clone.Parent = elt
-	fmt.Printf("use %s <%s>\n", id, clone.Name.Local)
 	nsvg.Process(clone)
 }
 
@@ -444,14 +443,12 @@ func (svg *SVG) renderPath(path *g2d.Path, elt *xml.Element) {
 	fill, pen := svg.FillStroke(elt)
 
 	cid := ParseUrlId(elt.Attributes["clip-path"])
-	fmt.Printf("render %s cid=%s fill=%s stroke=%s\n", elt.Name.Local, cid, elt.Attributes["fill"], elt.Attributes["stroke"])
 	svg.renderShape(shape, svg.Clip[cid], fill, pen)
 }
 
 func (svg *SVG) renderShape(shape, clip *g2d.Shape, fill, pen *g2d.Pen) {
 	// Apply viewBox xfm
 	shape = shape.Transform(svg.Xfm)
-	fmt.Printf("(%v\n", shape.Bounds())
 
 	if clip != nil {
 		clip = clip.Transform(svg.Xfm)
