@@ -24,14 +24,15 @@ type SVG struct {
 	PenS float64                 // Viewbox stroke-width scale
 	Clip map[string]*g2d.Shape   // Clip path ids to clip shapes
 	Defs map[string]*xml.Element // Element ids to elements
+	Rend *g2d.Renderable         // Renderable paths and fillers
 }
 
 func NewSVG(dst draw.Image) *SVG {
-	return &SVG{dst, g2d.NewAff3(), g2d.NewAff3(), 1, make(map[string]*g2d.Shape), make(map[string]*xml.Element)}
+	return &SVG{dst, g2d.NewAff3(), g2d.NewAff3(), 1, make(map[string]*g2d.Shape), make(map[string]*xml.Element), &g2d.Renderable{}}
 }
 
 func (svg *SVG) Copy() *SVG {
-	return &SVG{svg.Img, svg.Xfm.Copy(), svg.Pxfm.Copy(), svg.PenS, svg.Clip, svg.Defs}
+	return &SVG{svg.Img, svg.Xfm.Copy(), svg.Pxfm.Copy(), svg.PenS, svg.Clip, svg.Defs, svg.Rend}
 }
 
 func (svg *SVG) Process(elt *xml.Element) {
@@ -81,7 +82,7 @@ func (svg *SVG) SVGElt(elt *xml.Element) {
 
 	// Adjust xfm for viewBox (maintain aspect ratio)
 	attr, ok := elt.Attributes["viewBox"]
-	if ok {
+	if svg.Img != nil && ok {
 		// Fit the viewBox to the image maintaining the vb aspect ratio
 		bounds := ParseViewBox(attr)
 		vbdx, vbdy := bounds[1][0]-bounds[0][0], bounds[1][1]-bounds[0][1]
@@ -447,25 +448,36 @@ func (svg *SVG) renderPath(path *g2d.Path, elt *xml.Element) {
 }
 
 func (svg *SVG) renderShape(shape, clip *g2d.Shape, fill, pen *g2d.Pen) {
-	// Apply viewBox xfm
-	shape = shape.Transform(svg.Xfm)
+	if fill != nil {
+		svg.Rend.AddClippedShape(shape, clip, fill.Filler, nil)
+	}
 
-	if clip != nil {
-		clip = clip.Transform(svg.Xfm)
+	if pen != nil {
+		npen := pen.ScaleWidth(1 / svg.PenS)
+		svg.Rend.AddClippedPennedShape(shape, clip, npen, nil)
+	}
+
+	if svg.Img != nil {
+		// Apply viewBox xfm
+		shape = shape.Transform(svg.Xfm)
+
+		if clip != nil {
+			clip = clip.Transform(svg.Xfm)
+			if fill != nil {
+				g2d.FillClippedShape(svg.Img, shape, clip, fill)
+			}
+			if pen != nil {
+				g2d.DrawClippedShape(svg.Img, shape, clip, pen)
+			}
+			return
+		}
+
 		if fill != nil {
-			g2d.FillClippedShape(svg.Img, shape, clip, fill)
+			g2d.FillShape(svg.Img, shape, fill)
 		}
 		if pen != nil {
-			g2d.DrawClippedShape(svg.Img, shape, clip, pen)
+			g2d.DrawShape(svg.Img, shape, pen)
 		}
-		return
-	}
-
-	if fill != nil {
-		g2d.FillShape(svg.Img, shape, fill)
-	}
-	if pen != nil {
-		g2d.DrawShape(svg.Img, shape, pen)
 	}
 }
 

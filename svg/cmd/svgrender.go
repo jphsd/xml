@@ -46,5 +46,10 @@ func main() {
 	renderer.Process(dom)
 
 	// Save the result
-	image.SaveImage(img, "svgrender")
+	image.SaveImage(img, "svgrender-1")
+
+	// Save the renderables (viewBox independent)
+	img = image.NewRGBA(width, height, color.White)
+	renderer.Rend.Render(img, nil)
+	image.SaveImage(img, "svgrender-2")
 }

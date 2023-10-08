@@ -29,17 +29,22 @@ func (elt *Element) Copy() *Element {
 		attrs[k] = v
 	}
 
+	res := &Element{elt.Type, elt.Name, attrs, nil, elt.Parent, nil}
+
 	nc := len(elt.Children)
 	var children []*Element
 	if nc > 0 {
 		children = make([]*Element, nc)
 		for i := 0; i < nc; i++ {
 			children[i] = elt.Children[i].Copy()
+			children[i].Parent = res
 		}
+		res.Children = children
 	}
 
 	if elt.Content != nil {
-		return &Element{elt.Type, elt.Name, attrs, elt.Content.Copy(), elt.Parent, children}
+		res.Content = elt.Content.Copy()
 	}
-	return &Element{elt.Type, elt.Name, attrs, nil, elt.Parent, children}
+
+	return res
 }
