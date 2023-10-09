@@ -362,6 +362,10 @@ func ParseColor(str string) stdcol.Color {
 			return nil
 		}
 	}
+	if strings.Index(str, "url") == 0 {
+		// References gradients and patterns
+		return nil
+	}
 	// rgb(...)
 	strs := strings.Split(str, "(")
 	if len(strs) == 2 {
