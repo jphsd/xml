@@ -3,36 +3,66 @@ package svg
 import (
 	"fmt"
 	g2d "github.com/jphsd/graphics2d"
+	"github.com/jphsd/graphics2d/image"
 	"github.com/jphsd/graphics2d/util"
 	"github.com/jphsd/xml"
+	stdimg "image"
 	"image/color"
 	"image/draw"
 	"math"
 )
 
-// Draw renders the SVG data contained in dom into the destination image.
+// Draw is a convenience function to render the svg dom into an image. The svg is scaled to the image size.
 func Draw(dst draw.Image, dom *xml.Element) {
-	NewSVG(dst).Process(dom)
+	// Render the DOM
+	proc := NewSVG()
+	proc.Process(dom)
+
+	// Calculate xfm to map svg bounds to dst image bounds while maintaining the aspect ratio
+	renderer := proc.Rend
+	dbounds := util.RectToBB(dst.Bounds())
+	ddx, ddy := dbounds[1][0]-dbounds[0][0], dbounds[1][1]-dbounds[0][1]
+	sbounds := util.RectToBB(renderer.Bounds())
+	sdx, sdy := sbounds[1][0]-sbounds[0][0], sbounds[1][1]-sbounds[0][1]
+	sx := ddx / sdx
+	if sx*sdy > ddy {
+		sx = ddy / sdy
+	}
+	xfm := g2d.Translate(-sbounds[0][0], -sbounds[0][1])
+	xfm.Scale(sx, sx)
+	xfm.Translate(dbounds[0][0], dbounds[0][1])
+	renderer.Render(dst, xfm)
+}
+
+// Image renders the svg dom into an empty image with the same bounds as the dom.
+// Clipping only works if the image starts at {0,0} TODO - fix g2d.RenderClippedShape
+func Image(dom *xml.Element) *stdimg.RGBA {
+	proc := NewSVG()
+	proc.Process(dom)
+	renderer := proc.Rend
+	rect := renderer.Bounds()
+	res := image.NewRGBA(rect.Dx(), rect.Dy(), color.Transparent)
+	bounds := util.RectToBB(rect)
+	xfm := g2d.Translate(-bounds[0][0], -bounds[0][1])
+	renderer.Render(res, xfm)
+	return res
 }
 
 // SVG contains the current context - the image being drawn into, the style and view transforms, and the
 // defined clip paths and shapes.
 type SVG struct {
-	Img  draw.Image              // Image to render into
-	Xfm  *g2d.Aff3               // Viewbox transform
-	Pxfm *g2d.Aff3               // Path transform
-	PenS float64                 // Viewbox stroke-width scale
+	Xfm  *g2d.Aff3               // Path transform
 	Clip map[string]*g2d.Shape   // Clip path ids to clip shapes
 	Defs map[string]*xml.Element // Element ids to elements
 	Rend *g2d.Renderable         // Renderable paths and fillers
 }
 
-func NewSVG(dst draw.Image) *SVG {
-	return &SVG{dst, g2d.NewAff3(), g2d.NewAff3(), 1, make(map[string]*g2d.Shape), make(map[string]*xml.Element), &g2d.Renderable{}}
+func NewSVG() *SVG {
+	return &SVG{g2d.NewAff3(), make(map[string]*g2d.Shape), make(map[string]*xml.Element), &g2d.Renderable{}}
 }
 
 func (svg *SVG) Copy() *SVG {
-	return &SVG{svg.Img, svg.Xfm.Copy(), svg.Pxfm.Copy(), svg.PenS, svg.Clip, svg.Defs, svg.Rend}
+	return &SVG{svg.Xfm.Copy(), svg.Clip, svg.Defs, svg.Rend}
 }
 
 func (svg *SVG) Process(elt *xml.Element) {
@@ -78,30 +108,8 @@ func (svg *SVG) Process(elt *xml.Element) {
 // Element functions
 
 func (svg *SVG) SVGElt(elt *xml.Element) {
-	orig := svg.Xfm
-
-	// Adjust xfm for viewBox (maintain aspect ratio)
-	attr, ok := elt.Attributes["viewBox"]
-	if svg.Img != nil && ok {
-		// Fit the viewBox to the image maintaining the vb aspect ratio
-		bounds := ParseViewBox(attr)
-		vbdx, vbdy := bounds[1][0]-bounds[0][0], bounds[1][1]-bounds[0][1]
-		rect := svg.Img.Bounds()
-		dims := [][]float64{{float64(rect.Min.X), float64(rect.Min.Y)}, {float64(rect.Max.X), float64(rect.Max.Y)}}
-		imgdx, imgdy := dims[1][0]-dims[0][0], dims[1][1]-dims[0][1]
-		sx, sy := imgdx/vbdx, imgdy/vbdy
-		if sy < sx {
-			sx = sy
-		}
-		xfm := g2d.Translate(-bounds[0][0], -bounds[0][1])
-		xfm.Scale(sx, sx)
-		xfm.Translate(dims[0][0], dims[0][1])
-		svg.Xfm = xfm
-		svg.PenS = sx
-	}
-
 	// Set/Capture initial fill and style
-	_, ok = elt.Attributes["fill"]
+	_, ok := elt.Attributes["fill"]
 	if !ok {
 		elt.Attributes["fill"] = "#000"
 	}
@@ -138,16 +146,13 @@ func (svg *SVG) SVGElt(elt *xml.Element) {
 	for _, elt := range elt.Children {
 		svg.Process(elt)
 	}
-
-	// Restore previous viewBox transform
-	svg.Xfm = orig
 }
 
 func (svg *SVG) GroupElt(elt *xml.Element) {
 	nsvg := svg.Copy()
 	xfm := svg.Transform(elt)
 	if xfm != nil {
-		nsvg.Pxfm.Concatenate(*xfm)
+		nsvg.Xfm.Concatenate(*xfm)
 	}
 	for _, child := range elt.Children {
 		nsvg.Process(child)
@@ -157,14 +162,14 @@ func (svg *SVG) GroupElt(elt *xml.Element) {
 func (svg *SVG) PathElt(elt *xml.Element) {
 	paths := PathsFromDescription(elt.Attributes["d"])
 
-	// Can't use renderPath since there might be multiple
+	// Can't use renderPath since there might be multiple paths
 	xfm := svg.Transform(elt)
 	if xfm != nil {
-		svg.Pxfm.Concatenate(*xfm)
+		svg.Xfm.Concatenate(*xfm)
 	}
 
 	shape := g2d.NewShape(paths...)
-	shape = shape.Transform(svg.Pxfm)
+	shape = shape.Transform(svg.Xfm)
 
 	inside, id := insideClipPath(elt)
 	if inside {
@@ -175,7 +180,14 @@ func (svg *SVG) PathElt(elt *xml.Element) {
 	fill, pen := svg.FillStroke(elt)
 
 	cid := ParseUrlId(elt.Attributes["clip-path"])
-	svg.renderShape(shape, svg.Clip[cid], fill, pen)
+	clip := svg.Clip[cid]
+	if fill != nil {
+		svg.Rend.AddClippedShape(shape, clip, fill.Filler, nil)
+	}
+
+	if pen != nil {
+		svg.Rend.AddClippedPennedShape(shape, clip, pen, nil)
+	}
 }
 
 func (svg *SVG) RectElt(elt *xml.Element) {
@@ -275,12 +287,12 @@ func (svg *SVG) UseElt(elt *xml.Element) {
 	// Process any transform
 	xfm := svg.Transform(elt)
 	if xfm != nil {
-		nsvg.Pxfm.Concatenate(*xfm)
+		nsvg.Xfm.Concatenate(*xfm)
 	}
 	// Add <use> x, y translation
 	x := ParseValue(elt.Attributes["x"])
 	y := ParseValue(elt.Attributes["y"])
-	nsvg.Pxfm.Concatenate(*g2d.Translate(x, y))
+	nsvg.Xfm.Concatenate(*g2d.Translate(x, y))
 
 	// Clone and attach current as parent
 	clone := delt.Copy()
@@ -302,7 +314,7 @@ func (svg *SVG) ClipPathElt(elt *xml.Element) {
 	nsvg := svg.Copy()
 	xfm := svg.Transform(elt)
 	if xfm != nil {
-		nsvg.Pxfm.Concatenate(*xfm)
+		nsvg.Xfm.Concatenate(*xfm)
 	}
 
 	svg.Clip[id] = &g2d.Shape{}
@@ -319,9 +331,6 @@ func (svg *SVG) Transform(elt *xml.Element) *g2d.Aff3 {
 
 func (svg *SVG) FillStroke(elt *xml.Element) (*g2d.Pen, *g2d.Pen) {
 	var fill, pen *g2d.Pen
-
-	// style stomps on presentation attributes
-	ParseStyle(elt.Attributes["style"], elt.Attributes)
 
 	//fmt.Printf("<%s>\n", elt.Name.Local)
 	//for k, v := range elt.Attributes {
@@ -373,7 +382,7 @@ func (svg *SVG) FillStroke(elt *xml.Element) (*g2d.Pen, *g2d.Pen) {
 		sw = 1
 	}
 
-	pen = g2d.NewPen(scol, sw*svg.PenS)
+	pen = g2d.NewPen(scol, sw)
 
 	// stroke-linecap: butt, [round, square]
 	attr, ok := elt.Attributes["stroke-linecap"]
@@ -429,11 +438,11 @@ func (svg *SVG) FillStroke(elt *xml.Element) (*g2d.Pen, *g2d.Pen) {
 func (svg *SVG) renderPath(path *g2d.Path, elt *xml.Element) {
 	xfm := svg.Transform(elt)
 	if xfm != nil {
-		svg.Pxfm.Concatenate(*xfm)
+		svg.Xfm.Concatenate(*xfm)
 	}
 
 	shape := g2d.NewShape(path)
-	shape = shape.Transform(svg.Pxfm)
+	shape = shape.Transform(svg.Xfm)
 
 	inside, id := insideClipPath(elt)
 	if inside {
@@ -444,49 +453,24 @@ func (svg *SVG) renderPath(path *g2d.Path, elt *xml.Element) {
 	fill, pen := svg.FillStroke(elt)
 
 	cid := ParseUrlId(elt.Attributes["clip-path"])
-	svg.renderShape(shape, svg.Clip[cid], fill, pen)
-}
-
-func (svg *SVG) renderShape(shape, clip *g2d.Shape, fill, pen *g2d.Pen) {
+	clip := svg.Clip[cid]
 	if fill != nil {
 		svg.Rend.AddClippedShape(shape, clip, fill.Filler, nil)
 	}
 
 	if pen != nil {
-		npen := pen.ScaleWidth(1 / svg.PenS)
-		svg.Rend.AddClippedPennedShape(shape, clip, npen, nil)
-	}
-
-	if svg.Img != nil {
-		// Apply viewBox xfm
-		shape = shape.Transform(svg.Xfm)
-
-		if clip != nil {
-			clip = clip.Transform(svg.Xfm)
-			if fill != nil {
-				g2d.FillClippedShape(svg.Img, shape, clip, fill)
-			}
-			if pen != nil {
-				g2d.DrawClippedShape(svg.Img, shape, clip, pen)
-			}
-			return
-		}
-
-		if fill != nil {
-			g2d.FillShape(svg.Img, shape, fill)
-		}
-		if pen != nil {
-			g2d.DrawShape(svg.Img, shape, pen)
-		}
+		svg.Rend.AddClippedPennedShape(shape, clip, pen, nil)
 	}
 }
 
 func inheritAttributes(elt *xml.Element) {
+	// style stomps on presentation attributes
+	ParseStyle(elt.Attributes["style"], elt.Attributes)
+
 	if elt.Parent == nil {
 		return
 	}
 
-	// Assumes ParseStyle has already been called on parent
 	preserve := []string{
 		"clip-path",
 		"fill",

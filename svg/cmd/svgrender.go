@@ -15,8 +15,10 @@ import (
 
 // Read in a SVG file and render it to an image
 func main() {
-	// Get the file name from the command line or read stdin
+	imgf := flag.Bool("i", false, "use Image or Draw")
 	flag.Parse()
+
+	// Get the file name from the command line or read stdin
 	args := flag.Args()
 	fn := "/dev/stdin"
 	if len(args) > 0 {
@@ -37,19 +39,15 @@ func main() {
 		panic(err)
 	}
 
-	// Create an image to render into
-	width, height := 1000, 1000
-	img := image.NewRGBA(width, height, color.White)
-
-	// Render it using the DOM
-	renderer := svg.NewSVG(img)
-	renderer.Process(dom)
-
-	// Save the result
-	image.SaveImage(img, "svgrender-1")
-
-	// Save the renderables (viewBox independent)
-	img = image.NewRGBA(width, height, color.White)
-	renderer.Rend.Render(img, nil)
-	image.SaveImage(img, "svgrender-2")
+	if *imgf {
+		// Turn svg into an image on a transparent background
+		img := svg.Image(dom)
+		image.SaveImage(img, "svgrender-i")
+	} else {
+		// Create an image to render into to demonstrate scaling
+		width, height := 1000, 1000
+		img := image.NewRGBA(width, height, color.White)
+		svg.Draw(img, dom)
+		image.SaveImage(img, "svgrender-d")
+	}
 }
