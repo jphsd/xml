@@ -13,7 +13,7 @@ import (
 )
 
 // Draw is a convenience function to render the svg dom into an image. The svg is scaled to the image size.
-func Draw(dst draw.Image, dom *xml.Element) {
+func Draw(dst draw.Image, dom *xml.Element) *SVG {
 	// Render the DOM
 	proc := NewSVG()
 	proc.Process(dom)
@@ -32,20 +32,23 @@ func Draw(dst draw.Image, dom *xml.Element) {
 	xfm.Scale(sx, sx)
 	xfm.Translate(dbounds[0][0], dbounds[0][1])
 	renderer.Render(dst, xfm)
+	return proc
 }
 
 // Image renders the svg dom into an empty image with the same bounds as the dom.
 // Clipping only works if the image starts at {0,0} TODO - fix g2d.RenderClippedShape
-func Image(dom *xml.Element) *stdimg.RGBA {
+func Image(dom *xml.Element) (*stdimg.RGBA, *SVG) {
 	proc := NewSVG()
 	proc.Process(dom)
 	renderer := proc.Rend
 	rect := renderer.Bounds()
+	//res := stdimg.NewRGBA(rect)
+	//renderer.Render(res, nil)
 	res := image.NewRGBA(rect.Dx(), rect.Dy(), color.Transparent)
 	bounds := util.RectToBB(rect)
 	xfm := g2d.Translate(-bounds[0][0], -bounds[0][1])
 	renderer.Render(res, xfm)
-	return res
+	return res, proc
 }
 
 // SVG contains the current context - the image being drawn into, the style and view transforms, and the

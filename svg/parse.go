@@ -12,29 +12,35 @@ import (
 )
 
 var (
-	wspat  = regexp.MustCompile(`[ \n\r\t]+`)  // Whitespace pattern
-	wscpat = regexp.MustCompile(`[, \n\r\t]+`) // Whitespace and comma pattern
-	cpat   = regexp.MustCompile(`(\d)-`)       // Digit follwed by -ve sign pattern (SVG allows + too...)
-	lcapat = regexp.MustCompile(`([a-z]+)`)    // Lower case word pattern
+	wspat  = regexp.MustCompile(`[ \n\r\t]+`)    // Whitespace pattern
+	wscpat = regexp.MustCompile(`[, \n\r\t]+`)   // Whitespace and comma pattern
+	cpat   = regexp.MustCompile(`(\d)-`)         // Digit followed by -ve sign pattern (SVG allows + too...)
+	lcapat = regexp.MustCompile(`([a-z]+)`)      // Lower case word pattern
+	adjpat = regexp.MustCompile(`(\.\d+)(\.\d)`) // Adjacent decimals pattern
 )
 
 func PathsFromDescription(desc string) []*g2d.Path {
 	cmds := commands(desc)
 	cx, cy := 0.0, 0.0
+	cx0, cy0 := 0.0, 0.0
 	res := []*g2d.Path{}
 	var path *g2d.Path
 	var cp, qp []float64
+	first := true
+	newpath := false
 	for _, cmd := range cmds {
 		c, coords := commandCoords(cmd)
 		switch c {
 		case 'M': // MoveTo
-			if path != nil {
+			if path != nil && !newpath {
 				res = append(res, path)
 			}
+			newpath = false
 			for i := 0; i < len(coords); i += 2 {
 				cx, cy = coords[i], coords[i+1]
 				if i == 0 {
 					path = g2d.NewPath([]float64{cx, cy})
+					cx0, cy0 = cx, cy
 				} else {
 					// Additional pairs treated as L
 					path.AddStep([]float64{cx, cy})
@@ -42,15 +48,23 @@ func PathsFromDescription(desc string) []*g2d.Path {
 			}
 			qp, cp = nil, nil
 		case 'm':
-			if path != nil {
+			if path != nil && !newpath {
 				res = append(res, path)
 			}
+			newpath = false
 			for i := 0; i < len(coords); i += 2 {
-				cx, cy = cx+coords[i], cy+coords[i+1]
 				if i == 0 {
+					if first {
+						// Per SVG standard
+						cx, cy = coords[i], coords[i+1]
+					} else {
+						cx, cy = cx+coords[i], cy+coords[i+1]
+					}
 					path = g2d.NewPath([]float64{cx, cy})
+					cx0, cy0 = cx, cy
 				} else {
 					// Additional pairs treated as l
+					cx, cy = cx+coords[i], cy+coords[i+1]
 					path.AddStep([]float64{cx, cy})
 				}
 			}
@@ -228,11 +242,14 @@ func PathsFromDescription(desc string) []*g2d.Path {
 		case 'z':
 			path.Close()
 			res = append(res, path)
-			path = nil
+			cx, cy = cx0, cy0
+			path = g2d.NewPath([]float64{cx, cy})
+			newpath = true
 			qp, cp = nil, nil
 		default:
 			fmt.Printf("%s not implemented yet\n", string(c))
 		}
+		first = false
 	}
 	if path != nil {
 		res = append(res, path)
@@ -257,10 +274,11 @@ func commands(str string) []string {
 	}
 
 	// Normalize coordinates so space separated (because - is allowed)
-	tmp := res
-	res = make([]string, len(tmp))
-	for i, s := range tmp {
-		res[i] = cpat.ReplaceAllString(s, "$1 -")
+	for i, s := range res {
+		s = cpat.ReplaceAllString(s, "$1 -")
+		s = adjpat.ReplaceAllString(s, "$1 $2")
+		s = adjpat.ReplaceAllString(s, "$1 $2")
+		res[i] = s
 	}
 	return res
 }
@@ -289,6 +307,49 @@ func commandCoords(cmd string) (byte, []float64) {
 	rem := cmd[1:]
 	c := cmd[0]
 	strs := strings.Split(rem, " ")
+	if c == 'A' || c == 'a' {
+		// Arc command needs to validate/handle flags
+		ind := 0
+		nstrs := make([]string, 0, (len(strs)/7+1)*7)
+		for _, str := range strs {
+			switch ind {
+			case 3: // long arc flag
+				l := len(str)
+				switch l {
+				case 1: // Well formed
+					nstrs = append(nstrs, str)
+					ind++
+				case 2: // Mashed with sweep flag
+					nstrs = append(nstrs, string(str[0]))
+					nstrs = append(nstrs, string(str[1]))
+					ind += 2
+				default: // Mangled with sweep flag and x
+					nstrs = append(nstrs, string(str[0]))
+					nstrs = append(nstrs, string(str[1]))
+					nstrs = append(nstrs, str[2:])
+					ind += 3
+				}
+			case 4: // sweep flag
+				l := len(str)
+				switch l {
+				case 1: // Well formed
+					nstrs = append(nstrs, str)
+					ind++
+				default: // Mashed with x
+					nstrs = append(nstrs, string(str[0]))
+					nstrs = append(nstrs, str[1:])
+					ind += 2
+				}
+			default:
+				nstrs = append(nstrs, str)
+				ind++
+				if ind == 7 {
+					ind = 0
+				}
+			}
+		}
+		strs = nstrs
+	}
 	res := make([]float64, 0, len(strs))
 	for _, s := range strs {
 		if len(s) == 0 {
