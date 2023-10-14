@@ -69,7 +69,7 @@ func (svg *SVG) Copy() *SVG {
 }
 
 func (svg *SVG) Process(elt *xml.Element) {
-	if elt.Type != xml.Node {
+	if elt.Type != xml.Node || elt.Attributes["display"] == "none" {
 		return
 	}
 
@@ -111,6 +111,8 @@ func (svg *SVG) Process(elt *xml.Element) {
 // Element functions
 
 func (svg *SVG) SVGElt(elt *xml.Element) {
+	orig := svg.Xfm.Copy()
+
 	// Set/Capture initial fill and style
 	_, ok := elt.Attributes["fill"]
 	if !ok {
@@ -149,6 +151,8 @@ func (svg *SVG) SVGElt(elt *xml.Element) {
 	for _, elt := range elt.Children {
 		svg.Process(elt)
 	}
+
+	svg.Xfm = orig
 }
 
 func (svg *SVG) GroupElt(elt *xml.Element) {
@@ -180,7 +184,7 @@ func (svg *SVG) PathElt(elt *xml.Element) {
 		return
 	}
 
-	fill, pen := svg.FillStroke(elt)
+	fill, pen := svg.FillStroke(elt, shape.BoundingBox())
 
 	cid := ParseUrlId(elt.Attributes["clip-path"])
 	clip := svg.Clip[cid]
@@ -194,12 +198,50 @@ func (svg *SVG) PathElt(elt *xml.Element) {
 }
 
 func (svg *SVG) RectElt(elt *xml.Element) {
-	x := ParseValue(elt.Attributes["x"])
-	y := ParseValue(elt.Attributes["y"])
+	x1 := ParseValue(elt.Attributes["x"])
+	y1 := ParseValue(elt.Attributes["y"])
 	w := ParseValue(elt.Attributes["width"])
 	h := ParseValue(elt.Attributes["height"])
-	// TODO <rect> rx, ry
-	path := g2d.Polygon([]float64{x, y}, []float64{x + w, y}, []float64{x + w, y + h}, []float64{x, y + h})
+	x2, y2 := x1+w, y1+h
+
+	// Handle optional rx, ry
+	var rxp, ryp bool
+	rxa, rxp := elt.Attributes["rx"]
+	rya, ryp := elt.Attributes["ry"]
+
+	var path *g2d.Path
+	if rxp || ryp {
+		rx := ParseValue(rxa)
+		ry := ParseValue(rya)
+		if rxp && !ryp {
+			ry = rx
+		} else if ryp && !rxp {
+			rx = ry
+		}
+		if rx < 0 {
+			rx = 0
+		} else if rx > w/2 {
+			rx = w / 2
+		}
+		if ry < 0 {
+			ry = 0
+		} else if ry > h/2 {
+			ry = h / 2
+		}
+		x3, x4 := x1+rx, x2-rx
+		y3, y4 := y1+ry, y2-ry
+		path = g2d.Line([]float64{x3, y1}, []float64{x4, y1})
+		path.Concatenate(g2d.EllipticalArc([]float64{x4, y3}, rx, ry, -math.Pi/2, math.Pi/2, 0, g2d.ArcOpen))
+		path.Concatenate(g2d.Line([]float64{x2, y3}, []float64{x2, y4}))
+		path.Concatenate(g2d.EllipticalArc([]float64{x4, y4}, rx, ry, 0, math.Pi/2, 0, g2d.ArcOpen))
+		path.Concatenate(g2d.Line([]float64{x4, y2}, []float64{x3, y2}))
+		path.Concatenate(g2d.EllipticalArc([]float64{x3, y4}, rx, ry, math.Pi/2, math.Pi/2, 0, g2d.ArcOpen))
+		path.Concatenate(g2d.Line([]float64{x1, y4}, []float64{x1, y3}))
+		path.Concatenate(g2d.EllipticalArc([]float64{x3, y3}, rx, ry, math.Pi, math.Pi/2, 0, g2d.ArcOpen))
+		path.Close()
+	} else {
+		path = g2d.Polygon([]float64{x1, y1}, []float64{x2, y1}, []float64{x2, y2}, []float64{x1, y2})
+	}
 
 	svg.renderPath(path, elt)
 }
@@ -332,14 +374,18 @@ func (svg *SVG) Transform(elt *xml.Element) *g2d.Aff3 {
 	return ParseTransform(elt.Attributes["transform"])
 }
 
-func (svg *SVG) FillStroke(elt *xml.Element) (*g2d.Pen, *g2d.Pen) {
+func (svg *SVG) FillStroke(elt *xml.Element, bb [][]float64) (*g2d.Pen, *g2d.Pen) {
 	var fill, pen *g2d.Pen
 
-	//fmt.Printf("<%s>\n", elt.Name.Local)
+	//fmt.Printf("\n<%s>\n", elt.Name.Local)
 	//for k, v := range elt.Attributes {
 	//	fmt.Printf("%s: %s\n", k, v)
 	//}
-	//fmt.Println("")
+
+	// visibility
+	if elt.Attributes["visibility"] == "hidden" {
+		return fill, pen
+	}
 
 	// fill and fill-opacity
 	col := ParseColor(elt.Attributes["fill"])
@@ -357,8 +403,6 @@ func (svg *SVG) FillStroke(elt *xml.Element) (*g2d.Pen, *g2d.Pen) {
 			fcol.R, fcol.G, fcol.B, fcol.A = uint8(r), uint8(g), uint8(b), uint8(a)
 		}
 		fill = g2d.NewPen(fcol, 1)
-	} else {
-		fill = nil
 	}
 
 	// stroke and stroke-opacity
@@ -384,6 +428,19 @@ func (svg *SVG) FillStroke(elt *xml.Element) (*g2d.Pen, *g2d.Pen) {
 	if util.Equals(sw, 0) {
 		sw = 1
 	}
+
+	// Per SVG spec sw is scaled by the current xfm
+	// Calc sx and sy by transforming points sw in x and y away from
+	// the shape's minimum and then combining them
+	pt0 := bb[0] // Min
+	pt1 := []float64{pt0[0] + sw, pt0[1]}
+	pt2 := []float64{pt0[0], pt0[1] + sw}
+	pts := svg.Xfm.Apply(pt0, pt1, pt2)
+	dx, dy := pts[1][0]-pts[0][0], pts[1][1]-pts[0][1]
+	sx := math.Hypot(dx, dy)
+	dx, dy = pts[2][0]-pts[0][0], pts[2][1]-pts[0][1]
+	sy := math.Hypot(dx, dy)
+	sw = math.Sqrt(sx * sy) // geometric mean
 
 	pen = g2d.NewPen(scol, sw)
 
@@ -453,7 +510,7 @@ func (svg *SVG) renderPath(path *g2d.Path, elt *xml.Element) {
 		return
 	}
 
-	fill, pen := svg.FillStroke(elt)
+	fill, pen := svg.FillStroke(elt, shape.BoundingBox())
 
 	cid := ParseUrlId(elt.Attributes["clip-path"])
 	clip := svg.Clip[cid]
