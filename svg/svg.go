@@ -429,18 +429,21 @@ func (svg *SVG) FillStroke(elt *xml.Element, bb [][]float64) (*g2d.Pen, *g2d.Pen
 		sw = 1
 	}
 
-	// Per SVG spec sw is scaled by the current xfm
-	// Calc sx and sy by transforming points sw in x and y away from
-	// the shape's minimum and then combining them
-	pt0 := bb[0] // Min
-	pt1 := []float64{pt0[0] + sw, pt0[1]}
-	pt2 := []float64{pt0[0], pt0[1] + sw}
-	pts := svg.Xfm.Apply(pt0, pt1, pt2)
-	dx, dy := pts[1][0]-pts[0][0], pts[1][1]-pts[0][1]
-	sx := math.Hypot(dx, dy)
-	dx, dy = pts[2][0]-pts[0][0], pts[2][1]-pts[0][1]
-	sy := math.Hypot(dx, dy)
-	sw = math.Sqrt(sx * sy) // geometric mean
+	// vector-effect attribute is from SVG12
+	if elt.Attributes["vector-effect"] != "non-scaling-stroke" {
+		// Per SVG spec sw is scaled by the current xfm
+		// Calc sx and sy by transforming points sw in x and y away from
+		// the shape's minimum and then combining them
+		pt0 := bb[0] // Min
+		pt1 := []float64{pt0[0] + sw, pt0[1]}
+		pt2 := []float64{pt0[0], pt0[1] + sw}
+		pts := svg.Xfm.Apply(pt0, pt1, pt2)
+		dx, dy := pts[1][0]-pts[0][0], pts[1][1]-pts[0][1]
+		sx := math.Hypot(dx, dy)
+		dx, dy = pts[2][0]-pts[0][0], pts[2][1]-pts[0][1]
+		sy := math.Hypot(dx, dy)
+		sw = math.Sqrt(sx * sy) // geometric mean
+	}
 
 	pen = g2d.NewPen(scol, sw)
 
