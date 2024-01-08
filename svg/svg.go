@@ -3,7 +3,6 @@ package svg
 import (
 	"fmt"
 	g2d "github.com/jphsd/graphics2d"
-	"github.com/jphsd/graphics2d/image"
 	"github.com/jphsd/graphics2d/util"
 	"github.com/jphsd/xml"
 	stdimg "image"
@@ -40,14 +39,12 @@ func Draw(dst draw.Image, dom *xml.Element) *SVG {
 func Image(dom *xml.Element) (*stdimg.RGBA, *SVG) {
 	proc := NewSVG()
 	proc.Process(dom)
+
 	renderer := proc.Rend
 	rect := renderer.Bounds()
-	//res := stdimg.NewRGBA(rect)
-	//renderer.Render(res, nil)
-	res := image.NewRGBA(rect.Dx(), rect.Dy(), color.Transparent)
-	bounds := util.RectToBB(rect)
-	xfm := g2d.Translate(-bounds[0][0], -bounds[0][1])
-	renderer.Render(res, xfm)
+	res := stdimg.NewRGBA(rect)
+	renderer.Render(res, nil)
+
 	return res, proc
 }
 
@@ -453,15 +450,18 @@ func (svg *SVG) FillStroke(elt *xml.Element, bb [][]float64) (*g2d.Pen, *g2d.Pen
 		tsp, _ := pen.Stroke.(*g2d.StrokeProc)
 		switch attr {
 		case "round":
-			tsp.CapFunc = g2d.CapRound
+			tsp.CapStartFunc = g2d.CapRound
+			tsp.CapEndFunc = g2d.CapRound
 			tsp.PointFunc = g2d.PointCircle
 		case "square":
-			tsp.CapFunc = g2d.CapSquare
+			tsp.CapStartFunc = g2d.CapSquare
+			tsp.CapEndFunc = g2d.CapSquare
 			tsp.PointFunc = g2d.PointSquare
 		default:
 			fallthrough
 		case "butt":
-			tsp.CapFunc = g2d.CapButt
+			tsp.CapStartFunc = g2d.CapButt
+			tsp.CapEndFunc = g2d.CapButt
 			tsp.PointFunc = g2d.PointCircle
 		}
 	}
