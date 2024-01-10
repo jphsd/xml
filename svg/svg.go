@@ -35,15 +35,12 @@ func Draw(dst draw.Image, dom *xml.Element) *SVG {
 }
 
 // Image renders the svg dom into an empty image with the same bounds as the dom.
-// Clipping only works if the image starts at {0,0} TODO - fix g2d.RenderClippedShape
 func Image(dom *xml.Element) (*stdimg.RGBA, *SVG) {
 	proc := NewSVG()
 	proc.Process(dom)
 
 	renderer := proc.Rend
-	rect := renderer.Bounds()
-	res := stdimg.NewRGBA(rect)
-	renderer.Render(res, nil)
+	res := renderer.Image()
 
 	return res, proc
 }
