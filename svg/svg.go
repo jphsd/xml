@@ -468,6 +468,8 @@ func (svg *SVG) FillStroke(elt *xml.Element, bb [][]float64) (*g2d.Pen, *g2d.Pen
 	attr, ok = elt.Attributes["stroke-linejoin"]
 	if ok {
 		tsp, _ := pen.Stroke.(*g2d.StrokeProc)
+		rhs, _ := tsp.RHSProc.(g2d.TraceProc)
+		lhs, _ := tsp.LHSProc.(g2d.TraceProc)
 		switch attr {
 		default:
 			fallthrough
@@ -481,14 +483,14 @@ func (svg *SVG) FillStroke(elt *xml.Element, bb [][]float64) (*g2d.Pen, *g2d.Pen
 				}
 			}
 			mj := &g2d.MiterJoin{2 * math.Asin(1/ml), g2d.JoinBevel}
-			tsp.RTraceProc.JoinFunc = mj.JoinMiter
-			tsp.LTraceProc.JoinFunc = mj.JoinMiter
+			rhs.JoinFunc = mj.JoinMiter
+			lhs.JoinFunc = mj.JoinMiter
 		case "round":
-			tsp.RTraceProc.JoinFunc = g2d.JoinRound
-			tsp.LTraceProc.JoinFunc = g2d.JoinRound
+			rhs.JoinFunc = g2d.JoinRound
+			lhs.JoinFunc = g2d.JoinRound
 		case "bevel":
-			tsp.RTraceProc.JoinFunc = g2d.JoinBevel
-			tsp.LTraceProc.JoinFunc = g2d.JoinBevel
+			rhs.JoinFunc = g2d.JoinBevel
+			lhs.JoinFunc = g2d.JoinBevel
 		}
 	}
 
